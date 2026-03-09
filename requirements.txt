@@ -4,3 +4,4 @@ python-dotenv
 extract-msg
 reportlab
 requests
+streamlit-authenticator

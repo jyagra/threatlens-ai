@@ -1,302 +1,309 @@
 import streamlit as st
-from openai import OpenAI
 import os
-from dotenv import load_dotenv
 import re
 import urllib.parse
-import email
+import requests
+import yaml
+import stripe
+
+from openai import OpenAI
+from dotenv import load_dotenv
+from yaml.loader import SafeLoader
 from email import policy
 from email.parser import BytesParser
+import streamlit_authenticator as stauth
+
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from io import BytesIO
-import requests
 
+# Load environment variables
 load_dotenv()
 
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 ABUSE_KEY = os.getenv("ABUSEIPDB_API_KEY")
+STRIPE_KEY = os.getenv("STRIPE_SECRET_KEY")
 
 client = OpenAI(api_key=OPENAI_KEY)
 
+# Stripe setup
+if STRIPE_KEY:
+    stripe.api_key = STRIPE_KEY
+
 st.set_page_config(page_title="ThreatLens AI", page_icon="🛡️")
 
-st.title("🛡️ ThreatLens AI")
-st.subheader("AI + Threat Intelligence Phishing Detection")
-
-subject = st.text_input("Email Subject")
-sender = st.text_input("Sender Email Address")
-body = st.text_area("Email Body")
-
-uploaded_email = st.file_uploader("Upload Email File (.eml)", type=["eml"])
-
 # -----------------------------
-# EMAIL FILE PARSING
+# LOGIN SYSTEM
 # -----------------------------
-if uploaded_email is not None:
+with open("users.yaml") as file:
+    config = yaml.load(file, Loader=SafeLoader)
 
-    msg = BytesParser(policy=policy.default).parse(uploaded_email)
+authenticator = stauth.Authenticate(
+    config["credentials"],
+    config["cookie"]["name"],
+    config["cookie"]["key"],
+    config["cookie"]["expiry_days"],
+)
 
-    subject = msg["subject"]
-    sender = msg["from"]
+name, authentication_status, username = authenticator.login("Login", "main")
 
-    if msg.is_multipart():
+if authentication_status is False:
+    st.error("Incorrect username or password")
 
-        body = ""
+if authentication_status is None:
+    st.warning("Enter your login credentials")
 
-        for part in msg.walk():
+if authentication_status:
 
-            if part.get_content_type() == "text/plain":
+    authenticator.logout("Logout", "sidebar")
+    st.sidebar.write(f"Welcome {name}")
 
-                body += part.get_content()
+    st.title("🛡️ ThreatLens AI")
+    st.subheader("Email Phishing Detection Platform")
 
-    else:
+    subject = st.text_input("Email Subject")
+    sender = st.text_input("Sender Email Address")
+    body = st.text_area("Email Body")
 
-        body = msg.get_content()
+    uploaded_email = st.file_uploader("Upload Email (.eml)", type=["eml"])
 
-    st.success("Email file loaded successfully")
+    # -----------------------------
+    # EMAIL FILE PARSING
+    # -----------------------------
+    if uploaded_email is not None:
 
+        msg = BytesParser(policy=policy.default).parse(uploaded_email)
 
-# -----------------------------
-# URL SCANNER
-# -----------------------------
-def scan_urls(text):
+        subject = msg["subject"]
+        sender = msg["from"]
 
-    urls = re.findall(r'(https?://[^\s]+)', text)
+        if msg.is_multipart():
 
-    findings = []
-    ips = []
+            body = ""
 
-    for url in urls:
+            for part in msg.walk():
 
-        parsed = urllib.parse.urlparse(url)
-        domain = parsed.netloc
+                if part.get_content_type() == "text/plain":
+                    body += part.get_content()
 
-        if re.match(r"\d+\.\d+\.\d+\.\d+", domain):
+        else:
+            body = msg.get_content()
 
-            findings.append(f"IP address link detected: {url}")
-            ips.append(domain)
+        st.success("Email loaded successfully")
 
-        suspicious_tlds = [".ru", ".tk", ".xyz", ".top"]
+    # -----------------------------
+    # SCAN LIMIT (FREE TIER)
+    # -----------------------------
+    if "scan_count" not in st.session_state:
+        st.session_state.scan_count = 0
 
-        for tld in suspicious_tlds:
+    if st.session_state.scan_count >= 20:
+        st.warning("Free tier limit reached. Upgrade to continue scanning.")
+        st.stop()
 
-            if domain.endswith(tld):
+    # -----------------------------
+    # URL SCANNER
+    # -----------------------------
+    def scan_urls(text):
 
-                findings.append(f"Suspicious domain TLD detected: {domain}")
+        urls = re.findall(r'(https?://[^\s]+)', text)
 
-        shorteners = ["bit.ly", "tinyurl", "t.co"]
+        findings = []
+        ips = []
 
-        for short in shorteners:
+        for url in urls:
 
-            if short in domain:
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc
 
-                findings.append(f"Shortened URL detected: {url}")
+            if re.match(r"\d+\.\d+\.\d+\.\d+", domain):
 
-    return urls, findings, ips
+                findings.append(f"IP address link detected: {url}")
+                ips.append(domain)
 
+            suspicious_tlds = [".ru", ".tk", ".xyz", ".top"]
 
-# -----------------------------
-# THREAT INTEL LOOKUP
-# -----------------------------
-def check_ip_reputation(ip):
+            for tld in suspicious_tlds:
 
-    url = "https://api.abuseipdb.com/api/v2/check"
+                if domain.endswith(tld):
+                    findings.append(f"Suspicious domain TLD detected: {domain}")
 
-    headers = {
-        "Key": ABUSE_KEY,
-        "Accept": "application/json"
-    }
+            shorteners = ["bit.ly", "tinyurl", "t.co"]
 
-    params = {
-        "ipAddress": ip,
-        "maxAgeInDays": 90
-    }
+            for short in shorteners:
 
-    response = requests.get(url, headers=headers, params=params)
+                if short in domain:
+                    findings.append(f"Shortened URL detected: {url}")
 
-    if response.status_code == 200:
+        return urls, findings, ips
 
-        data = response.json()
+    # -----------------------------
+    # HEURISTIC DETECTION
+    # -----------------------------
+    def heuristic_score(subject, sender, body):
 
-        score = data["data"]["abuseConfidenceScore"]
+        score = 0
+        indicators = []
 
-        if score > 50:
-            return f"IP {ip} reported malicious (confidence score {score})"
+        text = (subject + body).lower()
 
-    return None
+        urgent_words = [
+            "urgent",
+            "verify",
+            "immediately",
+            "suspended",
+            "click now",
+            "account locked"
+        ]
 
+        for word in urgent_words:
 
-# -----------------------------
-# HEURISTIC DETECTION
-# -----------------------------
-def heuristic_score(subject, sender, body):
+            if word in text:
+                score += 15
+                indicators.append(f"Urgent language detected: {word}")
 
-    score = 0
-    indicators = []
+        if "paypa1" in sender.lower():
 
-    text = (subject + body).lower()
+            score += 25
+            indicators.append("Possible domain typo (paypa1 vs paypal)")
 
-    urgent_words = [
-        "urgent",
-        "verify",
-        "immediately",
-        "suspended",
-        "click now",
-        "account locked"
-    ]
+        return min(score,100), indicators
 
-    for word in urgent_words:
+    # -----------------------------
+    # ABUSEIPDB LOOKUP
+    # -----------------------------
+    def check_ip_reputation(ip):
 
-        if word in text:
+        url = "https://api.abuseipdb.com/api/v2/check"
 
-            score += 15
-            indicators.append(f"Urgent language detected: {word}")
+        headers = {
+            "Key": ABUSE_KEY,
+            "Accept": "application/json"
+        }
 
-    if "paypa1" in sender.lower():
+        params = {
+            "ipAddress": ip,
+            "maxAgeInDays": 90
+        }
 
-        score += 25
-        indicators.append("Possible domain typo (paypa1 vs paypal)")
+        response = requests.get(url, headers=headers, params=params)
 
-    return min(score,100), indicators
+        if response.status_code == 200:
 
+            data = response.json()
+            score = data["data"]["abuseConfidenceScore"]
 
-# -----------------------------
-# PDF REPORT
-# -----------------------------
-def generate_report(score, ai_text, heuristics, url_flags, threatintel):
+            if score > 50:
+                return f"IP {ip} reported malicious (confidence score {score})"
 
-    buffer = BytesIO()
+        return None
 
-    pdf = canvas.Canvas(buffer, pagesize=letter)
+    # -----------------------------
+    # PDF REPORT
+    # -----------------------------
+    def generate_report(score, ai_text, heuristics, url_flags, threatintel):
 
-    pdf.drawString(50,750,"ThreatLens AI Security Report")
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=letter)
 
-    pdf.drawString(50,730,f"Final Risk Score: {score}/100")
+        pdf.drawString(50,750,"ThreatLens Security Report")
+        pdf.drawString(50,730,f"Risk Score: {score}/100")
 
-    y=700
+        y=700
 
-    pdf.drawString(50,y,"AI Analysis")
-    y-=20
+        for line in ai_text.split("\n"):
+            pdf.drawString(60,y,line)
+            y-=15
 
-    for line in ai_text.split("\n"):
-        pdf.drawString(60,y,line)
-        y-=15
+        pdf.save()
 
-    y-=10
-    pdf.drawString(50,y,"Heuristic Indicators")
-    y-=20
+        buffer.seek(0)
+        return buffer
 
-    for item in heuristics:
-        pdf.drawString(60,y,f"- {item}")
-        y-=15
+    # -----------------------------
+    # ANALYZE BUTTON
+    # -----------------------------
+    if st.button("Analyze Email"):
 
-    y-=10
-    pdf.drawString(50,y,"URL Threat Indicators")
-    y-=20
+        st.session_state.scan_count += 1
 
-    for item in url_flags:
-        pdf.drawString(60,y,f"- {item}")
-        y-=15
+        heuristic, heuristic_indicators = heuristic_score(subject,sender,body)
 
-    y-=10
-    pdf.drawString(50,y,"Threat Intelligence Findings")
-    y-=20
+        urls, url_findings, ips = scan_urls(body)
 
-    for item in threatintel:
-        pdf.drawString(60,y,f"- {item}")
-        y-=15
+        threatintel = []
 
-    pdf.save()
+        for ip in ips:
 
-    buffer.seek(0)
+            result = check_ip_reputation(ip)
 
-    return buffer
+            if result:
+                threatintel.append(result)
 
-
-# -----------------------------
-# MAIN ANALYSIS
-# -----------------------------
-if st.button("Analyze Email"):
-
-    heuristic, heuristic_indicators = heuristic_score(subject,sender,body)
-
-    urls, url_findings, ips = scan_urls(body)
-
-    threatintel = []
-
-    for ip in ips:
-
-        result = check_ip_reputation(ip)
-
-        if result:
-            threatintel.append(result)
-
-    prompt = f"""
-You are a cybersecurity analyst.
-
+        prompt = f"""
 Analyze this email for phishing risk.
 
 Subject: {subject}
 Sender: {sender}
 Body: {body}
 
-Return ONLY:
+Return:
 
-AI Risk Score: (0-100)
-AI Risk Level: (Low, Medium, High)
+Risk Score (0-100)
+Risk Level
 Short Explanation
 """
 
-    response = client.chat.completions.create(
+        response = client.chat.completions.create(
 
-        model="gpt-4o-mini",
+            model="gpt-4o-mini",
 
-        messages=[
-            {"role":"system","content":"You are a cybersecurity analyst"},
-            {"role":"user","content":prompt}
-        ],
+            messages=[
+                {"role":"system","content":"You are a cybersecurity analyst"},
+                {"role":"user","content":prompt}
+            ]
+        )
 
-        temperature=0.3
-    )
+        ai_result = response.choices[0].message.content
 
-    ai_result = response.choices[0].message.content
+        ai_score_match = re.search(r"\d+",ai_result)
 
-    ai_score_match = re.search(r"\d+",ai_result)
+        ai_score = int(ai_score_match.group()) if ai_score_match else 50
 
-    ai_score = int(ai_score_match.group()) if ai_score_match else 50
+        final_score = int((ai_score + heuristic)/2)
 
-    final_score = int((ai_score + heuristic)/2)
+        st.subheader("Detection Results")
 
-    st.subheader("Detection Results")
+        if final_score >=70:
+            st.error(f"Risk Score: {final_score}/100")
+        elif final_score >=40:
+            st.warning(f"Risk Score: {final_score}/100")
+        else:
+            st.success(f"Risk Score: {final_score}/100")
 
-    if final_score >=70:
-        st.error(f"Final Risk Score: {final_score}/100")
-    elif final_score >=40:
-        st.warning(f"Final Risk Score: {final_score}/100")
-    else:
-        st.success(f"Final Risk Score: {final_score}/100")
+        st.write("### AI Analysis")
+        st.write(ai_result)
 
-    st.write("### AI Analysis")
-    st.write(ai_result)
+        st.write("### Heuristic Indicators")
+        for item in heuristic_indicators:
+            st.write(f"- {item}")
 
-    st.write("### Heuristic Indicators")
-    for item in heuristic_indicators:
-        st.write(f"- {item}")
+        st.write("### URL Findings")
+        for item in url_findings:
+            st.write(f"- {item}")
 
-    st.write("### URL Threat Indicators")
-    for item in url_findings:
-        st.write(f"- {item}")
+        st.write("### Threat Intelligence")
+        for item in threatintel:
+            st.write(f"- {item}")
 
-    st.write("### Threat Intelligence")
-    for item in threatintel:
-        st.write(f"- {item}")
+        report = generate_report(final_score,ai_result,heuristic_indicators,url_findings,threatintel)
 
-    report = generate_report(final_score,ai_result,heuristic_indicators,url_findings,threatintel)
+        st.download_button(
+            "Download Security Report",
+            report,
+            "threatlens_report.pdf",
+            "application/pdf"
+        )
 
-    st.download_button(
-        "Download Security Report (PDF)",
-        report,
-        "threatlens_report.pdf",
-        "application/pdf"
-    )
+        # Upgrade button
+        st.link_button("Upgrade to Business Plan", "https://stripe.com")
