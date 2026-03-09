@@ -1,3 +1,6 @@
 streamlit
 openai
 python-dotenv
+extract-msg
+reportlab
+requests
