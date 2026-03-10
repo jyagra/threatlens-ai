@@ -5,3 +5,4 @@ extract-msg
 reportlab
 requests
 streamlit-authenticator
+pip freeze > requirements.txt
