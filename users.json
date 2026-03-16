@@ -1,0 +1,8 @@
+[
+ {
+  "username": "admin",
+  "password": "$2b$12$c9IPvfW4VEUMCqwfR9A0eezIvhIArETu.N81e8zgJKO5NDqz2pobO",
+  "plan": "enterprise",
+  "organization": "default_org"
+ }
+]
