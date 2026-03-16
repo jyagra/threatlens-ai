@@ -20,7 +20,7 @@ ABUSE_KEY = os.getenv("ABUSEIPDB_API_KEY")
 
 client = OpenAI(api_key=OPENAI_KEY)
 
-st.set_page_config(page_title="ThreatLens AI", page_icon="🛡️")
+st.set_page_config(page_title="ThreatLens AI by Joel Yagra", page_icon="🛡️")
 
 st.title("🛡️ ThreatLens AI")
 st.subheader("AI + Threat Intelligence Phishing Detection")
@@ -369,3 +369,5 @@ Body: {body}
         "threatlens_report.pdf",
         "application/pdf"
     )
+st.markdown("---")
+st.caption("ThreatLens AI © 2026 — Built by Joel Yagra | Cybersecurity Analyst")
