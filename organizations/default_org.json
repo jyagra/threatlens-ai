@@ -1,0 +1,6 @@
+{
+ "organization": "Default Organization",
+ "plan": "starter",
+ "users": ["admin"],
+ "scan_history": []
+}

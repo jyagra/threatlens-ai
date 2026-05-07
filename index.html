@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>ThreatLens AI | Email Security</title>
+
+<style>
+
+body{
+font-family:Arial;
+background:#0f172a;
+color:white;
+text-align:center;
+padding:40px;
+}
+
+h1{
+font-size:48px;
+}
+
+h2{
+color:#22c55e;
+}
+
+.section{
+margin-top:50px;
+}
+
+.card{
+background:#1e293b;
+padding:25px;
+margin:20px auto;
+border-radius:10px;
+max-width:700px;
+}
+
+textarea{
+width:80%;
+height:150px;
+padding:10px;
+border-radius:8px;
+border:none;
+}
+
+button{
+background:#22c55e;
+border:none;
+padding:12px 25px;
+margin-top:10px;
+font-weight:bold;
+border-radius:6px;
+cursor:pointer;
+}
+
+.result{
+margin-top:20px;
+font-size:18px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>ThreatLens AI</h1>
+<h2>Email Phishing Investigation & Security Monitoring</h2>
+
+<div class="section">
+
+<p>
+Small businesses are increasingly targeted by phishing emails pretending to be banks,
+vendors, or Microsoft accounts.
+</p>
+
+<p>
+ThreatLens analyzes suspicious emails using AI and threat intelligence to determine if
+they are legitimate or malicious.
+</p>
+
+</div>
+
+<div class="section">
+
+<h2>Try the Demo Scanner</h2>
+
+<div class="card">
+
+<p>Paste a suspicious email below and ThreatLens will analyze it.</p>
+
+<textarea id="emailInput" placeholder="Paste email content here..."></textarea>
+
+<br>
+
+<button onclick="scanEmail()">Analyze Email</button>
+
+<div class="result" id="result"></div>
+
+</div>
+
+</div>
+
+<div class="section">
+
+<h2>How It Works</h2>
+
+<div class="card">
+Forward suspicious emails for analysis
+</div>
+
+<div class="card">
+ThreatLens scans the email using AI and threat intelligence
+</div>
+
+<div class="card">
+Receive a detailed security report explaining the threat level
+</div>
+
+</div>
+
+<div class="section">
+
+<h2>Example ThreatLens Report</h2>
+
+<div class="card">
+
+Risk Score: 87 / 100  
+Threat Level: HIGH
+
+<br><br>
+
+Indicators
+
+<br>
+
+• Suspicious domain  
+• Phishing language  
+• Newly registered URL  
+
+<br><br>
+
+Recommendation
+
+<br>
+
+Do not click links or enter credentials.
+
+</div>
+
+</div>
+
+<div class="section">
+
+<h2>Free Security Check</h2>
+
+<p>
+If your team receives a suspicious email, send it for a free phishing analysis.
+</p>
+
+<p>
+📧 Contact: <b>joel.threatlens@gmail.com</b>
+</p>
+
+<a href="mailto:joel.threatlens@gmail.com">
+<button>Request Free Email Security Check</button>
+</a>
+
+</div>
+
+<script>
+
+function scanEmail(){
+
+let text = document.getElementById("emailInput").value.toLowerCase();
+
+let score = 0;
+
+if(text.includes("urgent")) score += 20;
+if(text.includes("verify")) score += 20;
+if(text.includes("password")) score += 20;
+if(text.includes("login")) score += 15;
+if(text.includes("bank")) score += 15;
+if(text.includes("http")) score += 10;
+
+let risk;
+
+if(score > 60){
+risk = "HIGH RISK ⚠️";
+}
+
+else if(score > 30){
+risk = "MEDIUM RISK";
+}
+
+else{
+risk = "LOW RISK";
+}
+
+document.getElementById("result").innerHTML =
+"ThreatLens Risk Score: " + score + "/100<br>" +
+"Risk Level: " + risk;
+
+}
+
+</script>
+
+</body>
+
+</html>

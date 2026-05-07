@@ -1,0 +1,10 @@
+text,label
+verify your paypal account immediately,1
+your account will be suspended click here,1
+reset your bank password now,1
+meeting scheduled tomorrow at 10am,0
+project update attached please review,0
+invoice for last month services attached,0
+
+1 = phishing
+0 = legitimate
